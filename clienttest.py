@@ -74,6 +74,42 @@ def ui():
 
 server_addr = (ui(),6000)
 print(server_addr)
+
+# 執行緒send_message()：取得使用者的x,y座標及是否開火，傳送到Server​
+def send_message():
+    while(True):
+        # 建立Message Request訊息的dict物件
+        msgdict = {
+            "type": 3,
+            "nickname": nickname,
+            "Xcoordinate": x,
+            "Ycoordinate": y,
+            "yn_onfire": yn_onfire
+        }
+        # 轉成JSON字串，再轉成bytes
+        msgdata = json.dumps(msgdict).encode('utf-8')
+        print(msgdata)
+        # 將Enter Request送到Server
+        sock.sendto(msgdata, server_addr)
+        
+# 執行緒recv_message()：接收來自Server傳來的訊息，
+# 依據訊息中的type欄位所代表的訊息型態作對應的處理    
+def recv_message():
+    print('執行緒recv_message開始')
+    while(True):
+        # 接收來自Server傳來的訊息
+        data, address = sock.recvfrom(MAX_BYTES)
+        msgdict = json.loads(data.decode('utf-8'))
+        # 依照type欄位的值做對應的動作
+        ## Message Response(4)：這是之前Message Request的回應訊息
+        if msgdict['type'] == 4:
+            # 不需做任何處理
+            print('Get Message Response from server.') # 除錯用
+            pass 
+        ## Message Transfer(5)：這是其他Client所發布的訊息
+        if msgdict['type'] == 5:
+            print('Get Message Transfer from server.') # 除錯用
+            
 ui_input='Input your name'
 nickname=ui()
 # 建立一個UDP socket
@@ -95,6 +131,7 @@ while not is_entered:
     if msgdict['type'] == 2:
         is_entered = True
         screen.blit('成功進入伺服器!!!', (width/2,height/2))
+
 
 print('程式結束')
 
