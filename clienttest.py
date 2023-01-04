@@ -112,6 +112,8 @@ def recv_message():
             
 ui_input='Input your name'
 nickname=ui()
+x,y=pg.mouse.get_pos()
+yn_onfire=False
 # 建立一個UDP socket
 sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
 # 準備Enter Request訊息的dict物件
@@ -132,7 +134,14 @@ while not is_entered:
         is_entered = True
         screen.blit('成功進入伺服器!!!', (width/2,height/2))
 
-
+# 建立兩個threads：send_message與recv_message
+thread_send_message = threading.Thread(target=send_message)
+thread_recv_message = threading.Thread(target=recv_message)
+thread_send_message.start()
+thread_recv_message.start()
+thread_send_message.join()
+thread_recv_message.join()
+        
 print('程式結束')
 
 
