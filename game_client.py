@@ -27,7 +27,7 @@ screen=pg.display.set_mode((width,height))#視窗大小
 
 #載入圖片
 path1=os.path.abspath('.')
-ch=path1+'\\TCPIP_project\\picture\\'
+ch=path1+'\\picture\\'
 ui_background_jpg=pg.image.load(ch+'ui.png')
 background_jpg=pg.image.load(ch+'background.jpg')
 airplane_jpg=pg.image.load(ch+"airplane2.png").convert_alpha()
@@ -150,10 +150,14 @@ def pause(a):
             if event.type==pg.MOUSEMOTION:
                 x,y=pg.mouse.get_pos()
                 if y>=start_rect.top and y<=start_rect.bottom and x>=start_rect.left and x<=start_rect.right:
+                    if start_print==start:
+                        play_sound(ch + "button.mp3")
                     start_print=start2
                 else:
                     start_print=start
                 if y>=main_rect.top and y<=main_rect.bottom and x>=main_rect.left and x<=main_rect.right:
+                    if main_print==main:
+                        play_sound(ch + "button.mp3")
                     main_print=main2
                 else:
                     main_print=main
@@ -212,7 +216,21 @@ def game_over():
         screen.blit(scoretext,score_rect)
         pg.display.update()
         i+=1
-    
+def addres_error():
+    scoretext = font2.render("此伺服器不存在",True,(255,0,0))
+    score_rect=scoretext.get_rect()
+    score_rect.center=width/2,height/2
+    i=0
+    while i<256:
+        for event in pg.event.get():
+            #正常關閉
+            if event.type == pg.QUIT:
+                pg.quit()
+        scoretext.set_alpha(i)
+        time.sleep(0.02078125)
+        screen.blit(scoretext,score_rect)
+        pg.display.update()
+        i+=1    
     #偵測關閉事件
 def restart(a):
     start_png=pg.image.load(ch+'START.png')
@@ -252,14 +270,20 @@ def restart(a):
             if event.type==pg.MOUSEMOTION:
                 x,y=pg.mouse.get_pos()
                 if y>=start_rect.top and y<=start_rect.bottom and x>=start_rect.left and x<=start_rect.right:
+                    if start_print==start:
+                        play_sound(ch + "button.mp3")
                     start_print=start2
                 else:
                     start_print=start
                 if y>=main_rect.top and y<=main_rect.bottom and x>=main_rect.left and x<=main_rect.right:
+                    if main_print==main:
+                        play_sound(ch + "button.mp3")
                     main_print=main2
                 else:
                     main_print=main
                 if y>=exit_rect.top and y<=exit_rect.bottom and x>=exit_rect.left and x<=exit_rect.right:
+                    if exit_print==exit:
+                        play_sound(ch + "button.mp3")
                     exit_print=exit2
                 else:
                     exit_print=exit
@@ -283,10 +307,111 @@ def restart(a):
         screen.blit(scoretext,score_rect)
         pg.display.update()
 
+
+# 連線時遊戲結束
+def link_restart(a,str1):
+    start_png=pg.image.load(ch+'START.png')
+    start=pg.transform.scale(start_png,(400,200))
+    start2_png=pg.image.load(ch+'START2.png')
+    start2=pg.transform.scale(start2_png,(400,200))
+    start_rect=start.get_rect()
+    start_rect.center=width/4-100,height/2+150
+    start_print=start
+
+    main_png=pg.image.load(ch+'MAIN.png')
+    main=pg.transform.scale(main_png,(400,200))
+    main2_png=pg.image.load(ch+'MAIN2.png')
+    main2=pg.transform.scale(main2_png,(400,200))
+    main_print=main
+    main_rect=main.get_rect()
+    main_rect.center=width/2,height/2+150
+
+    exit_png=pg.image.load(ch+'EXIT.png')
+    exit=pg.transform.scale(exit_png,(400,200))
+    exit2_png=pg.image.load(ch+'EXIT2.png')
+    exit2=pg.transform.scale(exit2_png,(400,200))
+    exit_print=exit
+    exit_rect=exit.get_rect()
+    exit_rect.center=width*3/4+100,height/2+150
+    if str1=='LOSE':
+        scoretext = font2.render(str1,True,(75,0,130))
+    elif str1=='WIN':
+        scoretext = font2.render(str1,True,(255,215,0))
+    else:
+        scoretext = font2.render(str1,True,(255,0,0))
+    
+    score_rect=scoretext.get_rect()
+    score_rect.center=width/2,height/2
+    i=0
+
+    while i<256:
+        for event in pg.event.get():
+            #正常關閉
+            if event.type == pg.QUIT:
+                pg.quit()
+                thread_send_message.join()
+                thread_recv_message.join()
+        scoretext.set_alpha(i)
+        time.sleep(0.001953125)
+        screen.blit(scoretext,score_rect)
+        pg.display.update()
+        i+=1    
+    while a:
+        clock.tick(30)
+        scoretext = font2.render("是否繼續遊玩",True,(0,255,0))
+        score_rect=scoretext.get_rect()
+        score_rect.center=width/2,height/4
+        #pygame 事件處理
+        for event in pg.event.get():
+            #正常關閉
+            if event.type == pg.QUIT:
+                pg.quit()
+                thread_send_message.join()
+                thread_recv_message.join()
+            if event.type==pg.MOUSEMOTION:
+                x,y=pg.mouse.get_pos()
+                if y>=start_rect.top and y<=start_rect.bottom and x>=start_rect.left and x<=start_rect.right:
+                    if start_print==start:
+                        play_sound(ch + "button.mp3")
+                    start_print=start2
+                else:
+                    start_print=start
+                if y>=main_rect.top and y<=main_rect.bottom and x>=main_rect.left and x<=main_rect.right:
+                    if main_print==main:
+                        play_sound(ch + "button.mp3")
+                    main_print=main2
+                else:
+                    main_print=main
+                if y>=exit_rect.top and y<=exit_rect.bottom and x>=exit_rect.left and x<=exit_rect.right:
+                    if exit_print==exit:
+                        play_sound(ch + "button.mp3")
+                    exit_print=exit2
+                else:
+                    exit_print=exit
+            if event.type == pg.MOUSEBUTTONDOWN:
+                x,y = pg.mouse.get_pos()
+                if y>=start_rect.top and y<=start_rect.bottom and x>=start_rect.left and x<=start_rect.right:
+                    play_sound(ch + "button05.mp3")
+                    a=False 
+                    pg.mixer.music.stop()
+                elif y>=main_rect.top and y<=main_rect.bottom and x>=main_rect.left and x<=main_rect.right:
+                    play_sound(ch + "button05.mp3")
+                    pg.mixer.music.stop()
+                    return 1
+                elif y>=exit_rect.top and y<=exit_rect.bottom and x>=exit_rect.left and x<=exit_rect.right:
+                    play_sound(ch + "button05.mp3")
+                    pg.quit()
+        screen.blit(background,back_rect)
+        screen.blit(start_print,start_rect)
+        screen.blit(main_print,main_rect)
+        screen.blit(exit_print,exit_rect)
+        screen.blit(scoretext,score_rect)
+        pg.display.update()
+
+
+
+
 def main_ui():
-    # Settings
-    path1=os.path.abspath('.')
-    ch=path1+'\\TCPIP_project\\picture\\'
     start_png=pg.image.load(ch+'START.png')
     start=pg.transform.scale(start_png,(400,200))
     start_rect=start.get_rect()
@@ -339,10 +464,14 @@ def main_ui():
             if event.type==pg.MOUSEMOTION:
                 x,y=pg.mouse.get_pos()
                 if y>=start_rect.top and y<=start_rect.bottom and x>=start_rect.left and x<=start_rect.right:
+                    if print_pra==pra_p:
+                        play_sound(ch + "button.mp3")
                     print_pra=pra_p2
                 else:
                     print_pra=pra_p
                 if y>=start2_rect.top and y<=start2_rect.bottom and x>=start2_rect.left and x<=start2_rect.right:
+                    if print_game==game_p:
+                        play_sound(ch + "button.mp3")
                     print_game=game_p2
                 else:
                     print_game=game_p
@@ -430,11 +559,15 @@ win=False
 # 執行緒recv_message()：接收來自Server傳來的訊息，
 # 依據訊息中的type欄位所代表的訊息型態作對應的處理    
 def recv_message():
-    global is_entered,enbul_num,enairplane_rect,enbul_rect,win,enlife
+    global is_entered,enbul_num,enairplane_rect,enbul_rect,win,enlife,enter
     print('執行緒recv_message開始')
     while(True):
         # 接收來自Server傳來的訊息
-        data, address = sock.recvfrom(MAX_BYTES)
+        try:
+            data, address = sock.recvfrom(MAX_BYTES)
+        except ConnectionResetError:
+            is_entered = True
+            enter=True
         msgdict = json.loads(data.decode('utf-8'))
         # 依照type欄位的值做對應的動作
         if msgdict['type'] == 2:
@@ -585,6 +718,7 @@ while True:
                 for j in range(10):
                     for k in range(10):
                         if rebound0(bul_rect[i].top,bul_rect[i].bottom,bul_rect[i].left,bul_rect[i].right,bossbul_rect[j][k].top,bossbul_rect[j][k].bottom,bossbul_rect[j][k].left,bossbul_rect[j][k].right):
+                            play_sound(ch + "bomb.mp3")
                             bul_rect[i].center=width,height
                             bossbul_rect[j][k].center=-1,-1
                         
@@ -599,6 +733,7 @@ while True:
                 for j in range(10):
                     if rebound0(airplane_rect.top,airplane_rect.bottom,airplane_rect.left,airplane_rect.right,bossbul_rect[i][j].top,bossbul_rect[i][j].bottom,bossbul_rect[i][j].left,bossbul_rect[i][j].right):
                             if bossbul_rect[i][j].centerx>0:
+                                play_sound(ch + "burst01.mp3")
                                 bossbul_rect[i][j].center=-1,-1
                                 life-=1
         
@@ -664,8 +799,12 @@ while True:
         operation=True
         yn_onfire=False
         win=False
+        if not pg.mixer.music.get_busy():
+            pg.mixer.music.load(ch+'For the king.ogg')
+            pg.mixer.music.play(-1)
         server_addr = (ui('input server address'),6000)
         nickname=ui('Input your name')
+        pg.mixer.music.stop()
         # 建立一個UDP socket
         sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
         # 準備Enter Request訊息的dict物件
@@ -682,6 +821,7 @@ while True:
         pg.display.update()
         # 等待並接收Server傳回來的訊息，若為Enter Response則繼續下一步，否則繼續等待
         is_entered = False
+        enter=False
         # 建立兩個threads：send_message與recv_message
         thread_send_message = threading.Thread(target=send_message)
         thread_recv_message = threading.Thread(target=recv_message)
@@ -697,7 +837,11 @@ while True:
             screen.blit(background,back_rect)
             screen.blit(airplane,airplane_rect)
             pg.display.update()
-            
+        if enter:
+            game_start=False
+            addres_error()
+            thread_recv_message.join()
+            continue
 
         
         
@@ -724,6 +868,15 @@ while True:
                     runtime-=1
                 if event.type==pg.QUIT :
                     pg.quit()
+                    msgdict = {
+                    "type": 8,
+                    "nickname": nickname,
+                    }
+                    # 轉成JSON字串，再轉成bytes
+                    msgdata = json.dumps(msgdict).encode('utf-8')
+                    print(msgdata)
+                    # 將Enter Request送到Server
+                    sock.sendto(msgdata, server_addr)
                     thread_send_message.join()
                     thread_recv_message.join()
                 if event.type==pg.MOUSEMOTION:
@@ -811,6 +964,7 @@ while True:
             for i in range(5):
                 if rebound0(airplane_rect.top,airplane_rect.bottom,airplane_rect.left,airplane_rect.right,enbul_rect[i].top,enbul_rect[i].bottom,enbul_rect[i].left,enbul_rect[i].right):
                     if enbul_rect[i].centerx>0:
+                        play_sound(ch + "burst01.mp3")
                         enbul_rect[i].center=-1,-1
                         life-=1
                 if rebound0(bul_rect[i].top,bul_rect[i].bottom,bul_rect[i].left,bul_rect[i].right,enairplane_rect.top,enairplane_rect.bottom,enairplane_rect.left,enairplane_rect.right): 
@@ -823,20 +977,29 @@ while True:
                     bnbnoin=False
                 for j in range(5):
                     if rebound0(bul_rect[i].top,bul_rect[i].bottom,bul_rect[i].left,bul_rect[i].right,enbul_rect[j].top,enbul_rect[j].bottom,enbul_rect[j].left,enbul_rect[j].right):
+                        play_sound(ch + "bomb.mp3")
                         bul_rect[i].center=width,height
                         enbul_rect[j].center=-1,-1
 
 
-            if win:
+            if win:#win
                 life=10
                 score=0
-                control_choose=restart(True)
+                pg.mixer.music.stop()
+                if not pg.mixer.music.get_busy():
+                    pg.mixer.music.load(ch+'Middle_age_RPG_Theme_1.ogg')
+                    pg.mixer.music.play(-1)
+                control_choose=link_restart(True,'WIN')
+                pg.mixer.music.stop()
                 if control_choose==1: 
                     game_start=False
                     break
             
-            elif life <=0:
+            elif life <=0:#lose
                 pg.mixer.music.stop()
+                if not pg.mixer.music.get_busy():
+                    pg.mixer.music.load(ch+'Game Over.ogg')
+                    pg.mixer.music.play(-1)
                 msgdict = {
                 "type": 8,
                 "nickname": nickname,
@@ -846,7 +1009,8 @@ while True:
                 print(msgdata)
                 # 將Enter Request送到Server
                 sock.sendto(msgdata, server_addr)
-                control_choose=restart(True)
+                control_choose=link_restart(True,'LOSE')
+                pg.mixer.music.stop()
                 life=10
                 score=0
                 if control_choose==1: 
