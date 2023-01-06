@@ -17,7 +17,7 @@ score=0
 ui_input='input server address'
 MAX_BYTES = 65535
 pg.init()#初始化
-pg.mixer.init
+pg.mixer.init()
 pg.mixer.music.set_volume(1.0)
 pg.display.set_caption('飛機遊戲')
 
@@ -185,6 +185,8 @@ def vector(object,dex,x,dey,y):
         object.centery+=3
     if object.centerx<0:
         object.centerx=0
+    if object.left<0:
+        object.left=0
     elif object.centery>=1280:
         object.centerx=1280
     if object.centery<450:
@@ -408,6 +410,7 @@ def ui(ui_input):
         pg.display.flip()
 # 執行緒send_message()：取得使用者的x,y座標及是否開火，傳送到Server​
 def send_message():
+    global life
     while(True):
         # 建立Message Request訊息的dict物件
         msgdict = {
@@ -415,17 +418,19 @@ def send_message():
             "nickname": nickname,
             "Xcoordinate": airplane_rect.centerx,
             "Ycoordinate": airplane_rect.centery,
+            "life":life
         }
         # 轉成JSON字串，再轉成bytes
         msgdata = json.dumps(msgdict).encode('utf-8')
         print(msgdata)
         # 將Enter Request送到Server
         sock.sendto(msgdata, server_addr)
-enlife=20
+win=False
+
 # 執行緒recv_message()：接收來自Server傳來的訊息，
 # 依據訊息中的type欄位所代表的訊息型態作對應的處理    
 def recv_message():
-    global is_entered,enbul_num,enairplane_rect,enbul_rect,enlife
+    global is_entered,enbul_num,enairplane_rect,enbul_rect,win,enlife
     print('執行緒recv_message開始')
     while(True):
         # 接收來自Server傳來的訊息
@@ -441,6 +446,7 @@ def recv_message():
             pass 
         ## Message Transfer(5)：這是其他Client所發布的訊息
         elif msgdict['type'] == 5:
+            enlife=msgdict['life']
             enairplane_rect.center=width-msgdict['Xcoordinate'],height-msgdict['Ycoordinate']
         elif msgdict['type']==7:
             play_sound(ch + "attack1.mp3")
@@ -448,7 +454,7 @@ def recv_message():
             enbul_rect[enbul_num].center=width-msgdict['Xcoordinate'],height-msgdict['Ycoordinate']
             
         elif msgdict['type']==9:
-            enlife=0
+            win=True
 
 
 par=False
@@ -592,8 +598,9 @@ while True:
             for i in range(10):
                 for j in range(10):
                     if rebound0(airplane_rect.top,airplane_rect.bottom,airplane_rect.left,airplane_rect.right,bossbul_rect[i][j].top,bossbul_rect[i][j].bottom,bossbul_rect[i][j].left,bossbul_rect[i][j].right):
-                            bossbul_rect[i][j].center=-1,-1
-                            life-=1
+                            if bossbul_rect[i][j].centerx>0:
+                                bossbul_rect[i][j].center=-1,-1
+                                life-=1
         
             if life <=0:
                 pg.mixer.music.stop()
@@ -643,8 +650,8 @@ while True:
         COUNT=pg.USEREVENT+1
         pg.time.set_timer(COUNT,1000)
         runtime=60
-
-        life=10
+        enlife=0
+        life=100
         bnbnoin=True
         bnbspeed=[0,0]
         debomb_num=100
@@ -656,6 +663,7 @@ while True:
         score_rect.center=width/2,height/2
         operation=True
         yn_onfire=False
+        win=False
         server_addr = (ui('input server address'),6000)
         nickname=ui('Input your name')
         # 建立一個UDP socket
@@ -679,7 +687,7 @@ while True:
         thread_recv_message = threading.Thread(target=recv_message)
         thread_recv_message.start()
         while not is_entered:
-            clock.tick(200)
+            clock.tick(60)
             for event in pg.event.get():
                 if event.type==pg.QUIT :
                     pg.quit()
@@ -701,17 +709,23 @@ while True:
                     pg.mixer.music.load(ch+'Endless Pain of Nightmares.WAV')
                     pg.mixer.music.play(-1)
             clock.tick(60)#fps
+
             lifetext=font.render(f"life:{life}",True,(0,0,0))
             life_rect=lifetext.get_rect()
             life_rect.top=airplane_rect.bottom
             life_rect.centerx=airplane_rect.centerx
-
+            enlifetext=font.render(f"life:{enlife}",True,(0,0,0))
+            enlife_rect=enlifetext.get_rect()
+            enlife_rect.top=enairplane_rect.bottom
+            enlife_rect.centerx=enairplane_rect.centerx
             #偵測使用者觸發的事件
             for event in pg.event.get():
                 if event.type==COUNT:
                     runtime-=1
                 if event.type==pg.QUIT :
                     pg.quit()
+                    thread_send_message.join()
+                    thread_recv_message.join()
                 if event.type==pg.MOUSEMOTION:
                     x,y=pg.mouse.get_pos()
                     if y<450:
@@ -719,6 +733,8 @@ while True:
                     elif y>600:
                         y=600
                     airplane_rect.center=x,y
+                    if airplane_rect.left<0:
+                        airplane_rect.left=0
                     
                 if event.type==pg.KEYDOWN :
                     if event.key==pg.K_a or event.key==pg.K_LEFT:
@@ -759,13 +775,6 @@ while True:
                         logic_y=False
                 if event.type==pg.MOUSEBUTTONDOWN:
                     x,y=pg.mouse.get_pos()
-                    if y>=pause_rect.top and y<=pause_rect.bottom and x>=pause_rect.left and x<=pause_rect.right :
-                        a=True
-                        pause_b=pause(a)
-                        if pause_b==0:
-                            operation=False
-                            game_start=False
-                            pg.mixer.music.stop()
                     #我方子彈發射
                     bul_num_after=bul_num
                     bul_num=(bul_num+1)%5
@@ -786,12 +795,7 @@ while True:
                     else:
                         bul_num=bul_num_after
             vector(airplane_rect,logic_dex,logic_x,logic_dey,logic_y)
-            ############################################################################################
-            # if logic==1:#敵人子彈發射
-            #     enbul_num=(enbul_num+1)%5
-            #     if enbul_rect[enbul_num].centerx==-1:
-            #         enbul_rect[enbul_num].center=enairplane_rect.center
-            ############################################################################################
+
             for i in range(5):
                 enbul_rect[i]=enbul_rect[i].move(0,speed[3])#子彈移動
                 if enbul_rect[i].top>=height:#是否到達視窗底部
@@ -805,13 +809,10 @@ while True:
 
             #碰撞判定
             for i in range(5):
-                for j in range(5):
-                    if rebound0(bul_rect[i].top,bul_rect[i].bottom,bul_rect[i].left,bul_rect[i].right,enbul_rect[j].top,enbul_rect[j].bottom,enbul_rect[j].left,enbul_rect[j].right):
-                        bul_rect[i].center=width,height
-                        enbul_rect[j].center=-1,-1
                 if rebound0(airplane_rect.top,airplane_rect.bottom,airplane_rect.left,airplane_rect.right,enbul_rect[i].top,enbul_rect[i].bottom,enbul_rect[i].left,enbul_rect[i].right):
-                    enbul_rect[i].center=-1,-1
-                    life-=1
+                    if enbul_rect[i].centerx>0:
+                        enbul_rect[i].center=-1,-1
+                        life-=1
                 if rebound0(bul_rect[i].top,bul_rect[i].bottom,bul_rect[i].left,bul_rect[i].right,enairplane_rect.top,enairplane_rect.bottom,enairplane_rect.left,enairplane_rect.right): 
                     bnbnoin=True
                     debomb_num=0
@@ -820,24 +821,25 @@ while True:
                 if  bnbnoin:
                     bnbspeed[1]=random.randint(2,5)
                     bnbnoin=False
+                for j in range(5):
+                    if rebound0(bul_rect[i].top,bul_rect[i].bottom,bul_rect[i].left,bul_rect[i].right,enbul_rect[j].top,enbul_rect[j].bottom,enbul_rect[j].left,enbul_rect[j].right):
+                        bul_rect[i].center=width,height
+                        enbul_rect[j].center=-1,-1
 
 
-            if enlife==0:
+            if win:
                 life=10
                 score=0
+                control_choose=restart(True)
                 if control_choose==1: 
                     game_start=False
                     break
             
             elif life <=0:
-                ######################################################################
-                #####################################################################
                 pg.mixer.music.stop()
                 msgdict = {
                 "type": 8,
                 "nickname": nickname,
-                "Xcoordinate": airplane_rect.centerx,
-                "Ycoordinate": airplane_rect.centery,
                 }
                 # 轉成JSON字串，再轉成bytes
                 msgdata = json.dumps(msgdict).encode('utf-8')
@@ -850,10 +852,7 @@ while True:
                 if control_choose==1: 
                     game_start=False
                     break
-            #############################################################################
-            #敵機移動
-            ###############################################################################
-                
+    
             #圖片更新
             screen.blit(background,back_rect)
             screen.blit(enairplane,enairplane_rect)
@@ -871,7 +870,7 @@ while True:
                 screen.blit(ball,ball_rect)
             screen.blit(airplane,airplane_rect)
             screen.blit(lifetext,life_rect)
-            screen.blit(pausebtn,pause_rect)
+            screen.blit(enlifetext,enlife_rect)
             pg.display.update()
         thread_send_message.join()
         thread_recv_message.join()

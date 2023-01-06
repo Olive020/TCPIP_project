@@ -63,6 +63,7 @@ while(True):
             "nickname": message['nickname'], # 來源Client的綽號
             "Xcoordinate": message['Xcoordinate'],    # 來源Client的x座標
             "Ycoordinate": message['Ycoordinate'],    # 來源Client的y座標
+            "life":message['life']
         }
         data = json.dumps(msgdict).encode('utf-8')
         # 針對每一個在client_list中的每一個Client，
@@ -89,8 +90,6 @@ while(True):
         msgdict = {
             "type": 9,
             "nickname": message['nickname'], # 來源Client的綽號
-            "Xcoordinate": message['Xcoordinate'],    # 來源Client的x座標
-            "Ycoordinate": message['Ycoordinate'],    # 來源Client的y座標
         }
         data = json.dumps(msgdict).encode('utf-8')
         # 針對每一個在client_list中的每一個Client，
