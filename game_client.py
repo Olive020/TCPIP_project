@@ -827,6 +827,9 @@ while True:
         thread_recv_message = threading.Thread(target=recv_message)
         thread_recv_message.start()
         while not is_entered:
+            if not pg.mixer.music.get_busy():
+                pg.mixer.music.load(ch+'Clouds.Wav')
+                pg.mixer.music.play(-1)
             clock.tick(60)
             for event in pg.event.get():
                 if event.type==pg.QUIT :
@@ -837,6 +840,7 @@ while True:
             screen.blit(background,back_rect)
             screen.blit(airplane,airplane_rect)
             pg.display.update()
+        pg.mixer.music.stop()
         if enter:
             game_start=False
             addres_error()
