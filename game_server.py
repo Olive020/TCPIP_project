@@ -7,6 +7,13 @@ MAX_BYTES = 65535
 my_port = 6000
 client_list = [] # 存放每個Client資訊的清單
 def recv_message():
+    global client_list
+    # 接收來自Client的訊息，取得訊息內容(data)與地址資訊(address)
+    data, address = sock.recvfrom(MAX_BYTES)
+    text = data.decode('utf-8')
+    # print('The client at {} says {!r}'.format(address, text))
+    # 將訊息內容由JSON字串轉成dict物件
+    message= json.loads(text)
     if message['type'] == 3:
             # 建立一個Message Response (4) 訊息，送回給來源Client
             msgdict = {
@@ -53,7 +60,7 @@ def outtime():
 # 創建一個socket，並bind在指定的address
 sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
 thread_outtime = threading.Thread(target=outtime)
-thread_recv_message = threading.Thread(target=recv_message)
+# thread_recv_message = threading.Thread(target=recv_message)
 sock.bind(('0.0.0.0',my_port))
 print('Listening at {}'.format(sock.getsockname()))
 people_num=0
@@ -92,7 +99,7 @@ while True:
     game_start=True
     end_time=False
     thread_outtime.start()
-    thread_recv_message.start()
+    # thread_recv_message.start()
     # 處理來自Client訊息的無窮迴圈
     while(game_start):
         
@@ -114,9 +121,33 @@ while True:
         text = data.decode('utf-8')
         message= json.loads(text)
         # 依照type欄位的值做對應的動作
-        ## Enter Request (1)：有一個新的Client加入
         
         ## Message Request (3)：有一個Client送來聊天訊息
+        if message['type'] == 3:
+            # 建立一個Message Response (4) 訊息，送回給來源Client
+            msgdict = {
+                "type": 4
+            }
+            data = json.dumps(msgdict).encode('utf-8')
+            sock.sendto(data, address)
+            
+            # 建立一個Message Transfer (5)訊息
+            msgdict = {
+                "type": 5,
+                "nickname": message['nickname'], # 來源Client的綽號
+                "Xcoordinate": message['Xcoordinate'],    # 來源Client的x座標
+                "Ycoordinate": message['Ycoordinate'],    # 來源Client的y座標
+                "life":message['life']
+            }
+            data = json.dumps(msgdict).encode('utf-8')
+            # 針對每一個在client_list中的每一個Client，
+            # 轉送Message Transfer訊息給他們 (來源Client除外)
+                
+            for client in client_list:
+                if client['address']==address:
+                    client['end']=client['start']=time.perf_counter()
+                if client['address'] != address:
+                    sock.sendto(data, client['address']) 
         
         if message['type']==6:
             msgdict = {
@@ -152,6 +183,6 @@ while True:
             if req==client_num:
                 break
     thread_outtime.join()
-    thread_recv_message.join()
+    # thread_recv_message.join()
                 
 

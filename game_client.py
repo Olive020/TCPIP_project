@@ -870,7 +870,7 @@ while True:
             thread_recv_message = threading.Thread(target=recv_message)
             thread_end_message = threading.Thread(target=end_message)
             thread_recv_message.start()
-            thread_end_message.start()
+            
         is_entered = False
         enter=False
         while not is_entered:
@@ -897,7 +897,7 @@ while True:
         
         
         thread_send_message.start()
-        
+        thread_end_message.start()
 
         while operation:
             if not pg.mixer.music.get_busy():
