@@ -394,13 +394,29 @@ def link_restart(a,str1):
                     play_sound(ch + "button05.mp3")
                     a=False 
                     pg.mixer.music.stop()
+                    return 0
                 elif y>=main_rect.top and y<=main_rect.bottom and x>=main_rect.left and x<=main_rect.right:
                     play_sound(ch + "button05.mp3")
+                    msgdict = {
+                            "type": 10,
+                            "nickname": nickname,
+                    }
+                            # 轉成JSON字串，再轉成bytes
+                    msgdata = json.dumps(msgdict).encode('utf-8')
+                    sock.sendto(msgdata, server_addr)
                     pg.mixer.music.stop()
                     return 1
                 elif y>=exit_rect.top and y<=exit_rect.bottom and x>=exit_rect.left and x<=exit_rect.right:
                     play_sound(ch + "button05.mp3")
+                    msgdict = {
+                            "type": 10,
+                            "nickname": nickname,
+                    }
+                            # 轉成JSON字串，再轉成bytes
+                    msgdata = json.dumps(msgdict).encode('utf-8')
+                    sock.sendto(msgdata, server_addr)
                     pg.quit()
+                    end_message()
         screen.blit(background,back_rect)
         screen.blit(start_print,start_rect)
         screen.blit(main_print,main_rect)
@@ -570,7 +586,14 @@ def recv_message():
             enter=True
         msgdict = json.loads(data.decode('utf-8'))
         # 依照type欄位的值做對應的動作
-        if msgdict['type'] == 2:
+        if msgdict['type']==7:
+            play_sound(ch + "attack1.mp3")
+            enbul_num=(enbul_num+1)%5
+            enbul_rect[enbul_num].center=width-msgdict['Xcoordinate'],height-msgdict['Ycoordinate']
+        elif msgdict['type'] == 5:
+            enlife=msgdict['life']
+            enairplane_rect.center=width-msgdict['Xcoordinate'],height-msgdict['Ycoordinate']
+        elif msgdict['type'] == 2:
             is_entered = True
         ## Message Response(4)：這是之前Message Request的回應訊息
         elif msgdict['type'] == 4:
@@ -578,17 +601,17 @@ def recv_message():
             print('Get Message Response from server.') # 除錯用
             pass 
         ## Message Transfer(5)：這是其他Client所發布的訊息
-        elif msgdict['type'] == 5:
-            enlife=msgdict['life']
-            enairplane_rect.center=width-msgdict['Xcoordinate'],height-msgdict['Ycoordinate']
-        elif msgdict['type']==7:
-            play_sound(ch + "attack1.mp3")
-            enbul_num=(enbul_num+1)%5
-            enbul_rect[enbul_num].center=width-msgdict['Xcoordinate'],height-msgdict['Ycoordinate']
+        
             
         elif msgdict['type']==9:
             win=True
-
+def end_message():
+    global end
+    if end:
+        thread_send_message.join()
+        thread_recv_message.join()
+        end=False
+    
 
 par=False
 game_start=False
@@ -777,6 +800,7 @@ while True:
             screen.blit(lifetext,life_rect)
             screen.blit(pausebtn,pause_rect)
             pg.display.update()
+    restart=True
     while game_start: 
         #字串字體和大小
         font=pg.font.SysFont("微軟正黑體",36)
@@ -799,33 +823,46 @@ while True:
         operation=True
         yn_onfire=False
         win=False
-        if not pg.mixer.music.get_busy():
-            pg.mixer.music.load(ch+'For the king.ogg')
-            pg.mixer.music.play(-1)
-        server_addr = (ui('input server address'),6000)
-        nickname=ui('Input your name')
-        pg.mixer.music.stop()
-        # 建立一個UDP socket
-        sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-        # 準備Enter Request訊息的dict物件
-        msgdict = {
-            "type": 1,
-            "nickname": nickname
-        }
-        data = json.dumps(msgdict).encode('utf-8')
-        sock.sendto(data, server_addr)
-        for event in pg.event.get():
-                if event.type==pg.QUIT :
-                    pg.quit()
-        screen.blit(background,back_rect)
-        pg.display.update()
-        # 等待並接收Server傳回來的訊息，若為Enter Response則繼續下一步，否則繼續等待
+        end=False
+        
+        if restart:
+            restart=False
+            # 建立一個UDP socket
+            sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+            if not pg.mixer.music.get_busy():
+                pg.mixer.music.load(ch+'For the king.ogg')
+                pg.mixer.music.play(-1)
+            server_addr = (ui('input server address'),6000)
+            nickname=ui('Input your name')
+            pg.mixer.music.stop()
+            # 準備Enter Request訊息的dict物件
+            msgdict = {
+                "type": 1,
+                "nickname": nickname
+            }
+            data = json.dumps(msgdict).encode('utf-8')
+            try:
+                sock.sendto(data, server_addr)
+            except Exception as e:
+                addres_error()
+                continue
+            
+            for event in pg.event.get():
+                    if event.type==pg.QUIT :
+                        pg.quit()
+            screen.blit(background,back_rect)
+            pg.display.update()
+            # 等待並接收Server傳回來的訊息，若為Enter Response則繼續下一步，否則繼續等待
+            is_entered = False
+            enter=False
+            # 建立threads：send_message與recv_message
+            thread_send_message = threading.Thread(target=send_message)
+            thread_recv_message = threading.Thread(target=recv_message)
+            thread_end_message = threading.Thread(target=end_message)
+            thread_recv_message.start()
+            thread_end_message.start()
         is_entered = False
         enter=False
-        # 建立兩個threads：send_message與recv_message
-        thread_send_message = threading.Thread(target=send_message)
-        thread_recv_message = threading.Thread(target=recv_message)
-        thread_recv_message.start()
         while not is_entered:
             if not pg.mixer.music.get_busy():
                 pg.mixer.music.load(ch+'Clouds.Wav')
@@ -878,11 +915,9 @@ while True:
                     }
                     # 轉成JSON字串，再轉成bytes
                     msgdata = json.dumps(msgdict).encode('utf-8')
-                    print(msgdata)
                     # 將Enter Request送到Server
                     sock.sendto(msgdata, server_addr)
-                    thread_send_message.join()
-                    thread_recv_message.join()
+                    end=True
                 if event.type==pg.MOUSEMOTION:
                     x,y=pg.mouse.get_pos()
                     if y<450:
@@ -916,7 +951,6 @@ while True:
                             }
                             # 轉成JSON字串，再轉成bytes
                             msgdata = json.dumps(msgdict).encode('utf-8')
-                            print(msgdata)
                             # 將Enter Request送到Server
                             sock.sendto(msgdata, server_addr)
                         else:
@@ -946,7 +980,6 @@ while True:
                             }
                         # 轉成JSON字串，再轉成bytes
                         msgdata = json.dumps(msgdict).encode('utf-8')
-                        print(msgdata)
                         # 將Enter Request送到Server
                         sock.sendto(msgdata, server_addr)
                     else:
@@ -997,7 +1030,8 @@ while True:
                 pg.mixer.music.stop()
                 if control_choose==1: 
                     game_start=False
-                    break
+                    end_message()
+                break
             
             elif life <=0:#lose
                 pg.mixer.music.stop()
@@ -1010,7 +1044,6 @@ while True:
                 }
                 # 轉成JSON字串，再轉成bytes
                 msgdata = json.dumps(msgdict).encode('utf-8')
-                print(msgdata)
                 # 將Enter Request送到Server
                 sock.sendto(msgdata, server_addr)
                 control_choose=link_restart(True,'LOSE')
@@ -1019,7 +1052,8 @@ while True:
                 score=0
                 if control_choose==1: 
                     game_start=False
-                    break
+                    end_message()
+                break
     
             #圖片更新
             screen.blit(background,back_rect)
@@ -1040,6 +1074,5 @@ while True:
             screen.blit(lifetext,life_rect)
             screen.blit(enlifetext,enlife_rect)
             pg.display.update()
-        thread_send_message.join()
-        thread_recv_message.join()
+        end=True
 
