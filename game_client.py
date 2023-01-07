@@ -393,6 +393,14 @@ def link_restart(a,str1):
                 if y>=start_rect.top and y<=start_rect.bottom and x>=start_rect.left and x<=start_rect.right:
                     play_sound(ch + "button05.mp3")
                     a=False 
+                    msgdict = {
+                            "type": 10,
+                            "nickname": nickname,
+                            "re":True
+                    }
+                            # 轉成JSON字串，再轉成bytes
+                    msgdata = json.dumps(msgdict).encode('utf-8')
+                    sock.sendto(msgdata, server_addr)
                     pg.mixer.music.stop()
                     return 0
                 elif y>=main_rect.top and y<=main_rect.bottom and x>=main_rect.left and x<=main_rect.right:
@@ -400,6 +408,7 @@ def link_restart(a,str1):
                     msgdict = {
                             "type": 10,
                             "nickname": nickname,
+                            "re":False
                     }
                             # 轉成JSON字串，再轉成bytes
                     msgdata = json.dumps(msgdict).encode('utf-8')
@@ -411,6 +420,7 @@ def link_restart(a,str1):
                     msgdict = {
                             "type": 10,
                             "nickname": nickname,
+                            "re":False
                     }
                             # 轉成JSON字串，再轉成bytes
                     msgdata = json.dumps(msgdict).encode('utf-8')

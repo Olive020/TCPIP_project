@@ -87,6 +87,8 @@ while True:
                 sock.sendto(data, client['address'])
                 print('Send back Enter Response to', address) # 除錯用
             break
+    req=0
+    client_num=len(client_list)
     game_start=True
     end_time=False
     thread_outtime.start()
@@ -144,8 +146,10 @@ while True:
         elif message['type']==10:#退出
             for client in client_list:
                 if client['address'] == address:
-                    client_list.pop(client)
-            if len(client_list) !=2:
+                    if not client['re']:
+                        client_list.pop(client)
+                    req+=1
+            if req==client_num:
                 break
     thread_outtime.join()
     thread_recv_message.join()
