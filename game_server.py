@@ -40,22 +40,24 @@ def recv_message():
                 if client['address'] != address:
                     sock.sendto(data, client['address']) 
 def outtime():
-    if end_time:
-        for client in client_list:
-            client['end']=time.perf_counter()
-            if (client['end']-client['start'])>1:
-                msgdict = {
-                    "type": 9,
-                    "nickname": message['nickname'], # 來源Client的綽號
-                }
-                data = json.dumps(msgdict).encode('utf-8')
-                # 針對每一個在client_list中的每一個Client，
-                # 轉送Message Transfer訊息給他們 (來源Client除外)
-                for client in client_list:
-                    if client['address'] != address:
-                        sock.sendto(data, client['address']) 
-                    else:
-                        client_list.pop(client)
+    global end_time,client_list
+    # while True:
+    #     if end_time:
+    #         for client in client_list:
+    #             client['end']=time.perf_counter()
+    #             if (client['end']-client['start'])>10:
+    #                 msgdict = {
+    #                     "type": 9,
+    #                     "nickname": message['nickname'], # 來源Client的綽號
+    #                 }
+    #                 data = json.dumps(msgdict).encode('utf-8')
+    #                 # 針對每一個在client_list中的每一個Client，
+    #                 # 轉送Message Transfer訊息給他們 (來源Client除外)
+    #                 for client in client_list:
+    #                     if client['address'] != address:
+    #                         sock.sendto(data, client['address']) 
+    #                     else:
+    #                         client_list.remove(client)
 
 # 創建一個socket，並bind在指定的address
 sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
@@ -97,8 +99,8 @@ while True:
     req=0
     client_num=len(client_list)
     game_start=True
-    end_time=False
-    thread_outtime.start()
+    end_time=True
+    # thread_outtime.start()
     # thread_recv_message.start()
     # 處理來自Client訊息的無窮迴圈
     while(game_start):
@@ -171,18 +173,12 @@ while True:
             # 針對每一個在client_list中的每一個Client，
             # 轉送Message Transfer訊息給他們 (來源Client除外)
             for client in client_list:
+                del client
                 if client['address'] != address:
                     sock.sendto(data, client['address']) 
-            end_time=True
-        elif message['type']==10:#退出
-            for client in client_list:
-                if client['address'] == address:
-                    if not client['re']:
-                        client_list.pop(client)
-                    req+=1
-            if req==client_num:
-                break
-    thread_outtime.join()
+            end_time=False
+            break
+        
     # thread_recv_message.join()
                 
 
