@@ -353,7 +353,7 @@ def link_restart(a,str1):
                 end_message()
                 sys.exit()
         scoretext.set_alpha(i)
-        time.sleep(0.001953125)
+        time.sleep(0.002953125)
         screen.blit(scoretext,score_rect)
         i+=1    
     while a:

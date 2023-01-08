@@ -5,7 +5,7 @@ import json
 import time
 MAX_BYTES = 65535
 my_port = 6000
-client_list = [] # 存放每個Client資訊的清單
+
 def recv_message():
     global client_list
     # 接收來自Client的訊息，取得訊息內容(data)與地址資訊(address)
@@ -67,6 +67,7 @@ sock.bind(('0.0.0.0',my_port))
 print('Listening at {}'.format(sock.getsockname()))
 people_num=0
 while True:
+    client_list = [] # 存放每個Client資訊的清單
     while True:
         # 接收來自Client的訊息，取得訊息內容(data)與地址資訊(address)
         data, address = sock.recvfrom(MAX_BYTES)
@@ -173,12 +174,11 @@ while True:
             # 針對每一個在client_list中的每一個Client，
             # 轉送Message Transfer訊息給他們 (來源Client除外)
             for client in client_list:
-                del client
                 if client['address'] != address:
                     sock.sendto(data, client['address']) 
             end_time=False
             break
         
-    # thread_recv_message.join()
+   
                 
 
