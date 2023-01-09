@@ -236,6 +236,39 @@ def addres_error():
         screen.blit(scoretext,score_rect)
         pg.display.update()
         i+=1    
+
+def standby():
+    scoretext=[]
+    scoretext.append(font2.render("等待配對中",True,(255,0,0)))
+    scoretext.append(font2.render("等待配對中.",True,(255,0,0)))
+    scoretext.append(font2.render("等待配對中. .",True,(255,0,0)))
+    scoretext.append(font2.render("等待配對中. . .",True,(255,0,0)))
+    
+    score_rect=scoretext[0].get_rect()
+    score_rect.center=width/2,height/2
+    i=0
+    run=0
+    global is_entered,background,back_rect
+    while not is_entered:
+        clock.tick(60)
+        if not pg.mixer.music.get_busy():
+                pg.mixer.music.load(ch+'Clouds.Wav')
+                pg.mixer.music.play(-1)
+        for event in pg.event.get():
+            #正常關閉
+            if event.type == pg.QUIT:
+                pg.quit()
+                sys.exit()
+        screen.blit(background,back_rect)
+        screen.blit(scoretext[i],score_rect)
+        pg.display.update()
+        if run==30:
+            run=0
+            i=(i+1)%4
+        run+=1
+         
+    pg.mixer.music.stop() 
+
     #偵測關閉事件
 def restart(a):
     start_png=pg.image.load(ch+'START.png')
@@ -353,9 +386,11 @@ def link_restart(a,str1):
                 end_message()
                 sys.exit()
         scoretext.set_alpha(i)
-        time.sleep(0.002953125)
+        time.sleep(0.02953125)
         screen.blit(scoretext,score_rect)
+        pg.display.update()
         i+=1    
+    
     while a:
         clock.tick(30)
         scoretext = font2.render("是否繼續遊玩",True,(0,255,0))
@@ -535,7 +570,7 @@ send_message_logic=False
 stop_t=False
 # 執行緒send_message()：取得使用者的x,y座標及是否開火，傳送到Server​
 def send_message():
-    global life,send_message_logic
+    global life,send_message_logic,stop_t
     while True:
         # 建立Message Request訊息的dict物件
         msgdict = {
@@ -553,6 +588,7 @@ def send_message():
         sock.sendto(msgdata, server_addr)
         if stop_t:
             break
+    print('send_message已關閉')
 win=False
 
 # 執行緒recv_message()：接收來自Server傳來的訊息，
@@ -562,6 +598,8 @@ def recv_message():
     global is_entered,enbul_num,enairplane_rect,enbul_rect,win,enlife,enter,recv_message_logic,stop_t
     print('執行緒recv_message開始')
     while True:
+        if stop_t:
+            break
         # 接收來自Server傳來的訊息
         try:
             data, address = sock.recvfrom(MAX_BYTES)
@@ -570,30 +608,31 @@ def recv_message():
             enter=True
         msgdict = json.loads(data.decode('utf-8'))
         # 依照type欄位的值做對應的動作
+        # 接收來自Ser
         if msgdict['type']==7:
             play_sound(ch + "attack1.mp3")
-            enbul_num=(enbul_num+1)%5
+            enbul_num=(enbul_num+1)%10
             enbul_rect[enbul_num].center=width-msgdict['Xcoordinate'],height-msgdict['Ycoordinate']
         elif msgdict['type'] == 5:
             enlife=msgdict['life']
             enairplane_rect.center=width-msgdict['Xcoordinate'],height-msgdict['Ycoordinate']
         elif msgdict['type'] == 2:
             is_entered = True
-        if stop_t:
-            break
+        
         ## Message Response(4)：這是之前Message Request的回應訊息
         # elif msgdict['type'] == 4:
         #     # 不需做任何處理
         #     print('Get Message Response from server.') # 除錯用
         #     pass 
         ## Message Transfer(5)：這是其他Client所發布的訊息
-        
-            
         elif msgdict['type']==9:
             win=True
+        
+    print('recv_message已關閉')
+
 
 def end_message():
-    global end,stop_t
+    global end,stop_t,thread_recv_message,thread_send_message
     stop_t=True
     if end:
         thread_recv_message.join()
@@ -859,22 +898,7 @@ while True:
             
         is_entered = False
         enter=False
-        while not is_entered:
-            if not pg.mixer.music.get_busy():
-                pg.mixer.music.load(ch+'Clouds.Wav')
-                pg.mixer.music.play(-1)
-            clock.tick(60)
-            for event in pg.event.get():
-                if event.type==pg.QUIT :
-                    pg.quit()
-                    sys.exit()
-                if event.type==pg.MOUSEMOTION:
-                    x,y=pg.mouse.get_pos()
-                    airplane_rect.center=x,y
-            screen.blit(background,back_rect)
-            screen.blit(airplane,airplane_rect)
-            pg.display.update()
-        pg.mixer.music.stop()
+        standby()#等待連線
         if enter:
             game_start=False
             addres_error()
@@ -975,7 +999,7 @@ while True:
                         bul_num=bul_num_after
             vector(airplane_rect,logic_dex,logic_x,logic_dey,logic_y)
 
-            for i in range(5):
+            for i in range(10):
                 enbul_rect[i]=enbul_rect[i].move(0,speed[3])#子彈移動
                 if enbul_rect[i].top>=height:#是否到達視窗底部
                     enbul_rect[i].center=-1,-1
@@ -983,16 +1007,18 @@ while True:
                     bul_rect[i]=bul_rect[i].move(0,speed[2])
                 if bul_rect[i].top<=0:#將子彈重置
                     bul_rect[i].center=width,height
-
-
-
-            #碰撞判定
-            for i in range(5):
+                #碰撞判定
                 if rebound0(airplane_rect.top,airplane_rect.bottom,airplane_rect.left,airplane_rect.right,enbul_rect[i].top,enbul_rect[i].bottom,enbul_rect[i].left,enbul_rect[i].right):
                     if enbul_rect[i].centerx>0:
                         play_sound(ch + "burst01.mp3")
                         enbul_rect[i].center=-1,-1
                         life-=1
+
+
+
+            #碰撞判定
+            for i in range(5):
+                
                 if rebound0(bul_rect[i].top,bul_rect[i].bottom,bul_rect[i].left,bul_rect[i].right,enairplane_rect.top,enairplane_rect.bottom,enairplane_rect.left,enairplane_rect.right): 
                     bnbnoin=True
                     debomb_num=0
@@ -1001,7 +1027,7 @@ while True:
                 if  bnbnoin:
                     bnbspeed[1]=random.randint(2,5)
                     bnbnoin=False
-                for j in range(5):
+                for j in range(10):
                     if rebound0(bul_rect[i].top,bul_rect[i].bottom,bul_rect[i].left,bul_rect[i].right,enbul_rect[j].top,enbul_rect[j].bottom,enbul_rect[j].left,enbul_rect[j].right):
                         play_sound(ch + "bomb.mp3")
                         bul_rect[i].center=width,height
