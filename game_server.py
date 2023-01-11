@@ -1,6 +1,5 @@
 from cmath import log
 import socket
-import threading
 import json
 import time
 MAX_BYTES = 65535
@@ -39,29 +38,11 @@ def recv_message():
                     client['end']=client['start']=time.perf_counter()
                 if client['address'] != address:
                     sock.sendto(data, client['address']) 
-def outtime():
-    global end_time,client_list
-    # while True:
-    #     if end_time:
-    #         for client in client_list:
-    #             client['end']=time.perf_counter()
-    #             if (client['end']-client['start'])>10:
-    #                 msgdict = {
-    #                     "type": 9,
-    #                     "nickname": message['nickname'], # 來源Client的綽號
-    #                 }
-    #                 data = json.dumps(msgdict).encode('utf-8')
-    #                 # 針對每一個在client_list中的每一個Client，
-    #                 # 轉送Message Transfer訊息給他們 (來源Client除外)
-    #                 for client in client_list:
-    #                     if client['address'] != address:
-    #                         sock.sendto(data, client['address']) 
-    #                     else:
-    #                         client_list.remove(client)
+
 
 # 創建一個socket，並bind在指定的address
 sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-thread_outtime = threading.Thread(target=outtime)
+
 # thread_recv_message = threading.Thread(target=recv_message)
 sock.bind(('0.0.0.0',my_port))
 print('Listening at {}'.format(sock.getsockname()))
