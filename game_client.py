@@ -3,23 +3,146 @@ from tracemalloc import stop
 import pygame as pg
 import os
 import random
-import socket
-import json
-import threading
 from sqlalchemy import false, true
 import time
 import sys
+import pickle
+
+# --- Q-Learning 相關類別與函式 ---
+class QLearningAgent:
+    def __init__(self, actions):
+        self.actions = actions
+        self.lr = 0.1        # 學習率
+        self.gamma = 0.9     # 折扣因子
+        self.epsilon = 0.5   # 初始探索機率 (提高以增加初期嘗試)
+        self.epsilon_min = 0.01 # 最小探索機率
+        self.epsilon_decay = 0.995 # 衰減率
+        self.q_table = {}    # Q-Table
+
+    def get_q(self, state, action):
+        return self.q_table.get((state, action), 0.0)
+
+    def choose_action(self, state):
+        # Epsilon-Greedy 策略
+        if random.random() < self.epsilon:
+            return random.choice(self.actions)
+        
+        q_values = [self.get_q(state, a) for a in self.actions]
+        max_q = max(q_values)
+        # 若有多個最大值，隨機選擇其中一個
+        best_actions = [self.actions[i] for i, q in enumerate(q_values) if q == max_q]
+        return random.choice(best_actions)
+
+    def learn(self, state, action, reward, next_state):
+        q_predict = self.get_q(state, action)
+        q_target = reward + self.gamma * max([self.get_q(next_state, a) for a in self.actions])
+        self.q_table[(state, action)] = q_predict + self.lr * (q_target - q_predict)
+
+    def decay_epsilon(self):
+        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+
+    def save_q_table(self, filename='q_table_v2.pkl'):
+        with open(filename, 'wb') as f:
+            pickle.dump(self.q_table, f)
+        print("Q-Table saved.")
+
+    def load_q_table(self, filename='q_table_v2.pkl'):
+        if os.path.exists(filename):
+            with open(filename, 'rb') as f:
+                self.q_table = pickle.load(f)
+            print(f"Q-Table loaded. Size: {len(self.q_table)}")
+
+    def debug_q_table(self):
+        print("\n=== Q-Table Visualization ===")
+        # 整理 Q-Table，將 (state, action) -> value 轉為 state -> {action: value}
+        state_actions = {}
+        for (state, action), q_val in self.q_table.items():
+            if state not in state_actions:
+                state_actions[state] = {}
+            state_actions[state][action] = q_val
+
+        action_map = {0: "STOP", 1: "LEFT", 2: "RIGHT", 3: "UP", 4: "DOWN", 5: "FIRE"}
+        sorted_states = sorted(state_actions.keys())
+        
+        for state in sorted_states:
+            enemy, danger, pos = state
+            # 將數字狀態轉為可讀文字
+            e_str = ["Align", "Left", "Right"][enemy]
+            d_str = ["Safe", "L-Danger", "C-Danger", "R-Danger"][danger]
+            p_str = ["Left", "Center", "Right"][pos]
+            
+            print(f"State [Enemy:{e_str:5} | Danger:{d_str:8} | Pos:{p_str:6}]:")
+            best_act = max(state_actions[state], key=state_actions[state].get)
+            for action in sorted(state_actions[state].keys()):
+                act_name = action_map.get(action, str(action))
+                q = state_actions[state][action]
+                marker = " <--- BEST" if action == best_act else ""
+                print(f"  {act_name:<5}: {q:8.2f}{marker}")
+        print("=============================\n")
+
+def get_rl_state(player_rect, enemies_rect, bullets_rect):
+    # 將遊戲狀態簡化 (Discretization)
+    px, py = player_rect.centerx, player_rect.centery
+    
+    # 1. 最近敵人的相對位置 (0:無/對齊, 1:左, 2:右)
+    nearest_enemy_state = 0
+    min_dist = 9999
+    target_enemy = None
+    
+    for en in enemies_rect:
+        dist = ((en.centerx - px)**2 + (en.centery - py)**2)**0.5
+        if dist < min_dist:
+            min_dist = dist
+            target_enemy = en
+            
+    if target_enemy:
+        dx = target_enemy.centerx - px
+        if abs(dx) < 40: nearest_enemy_state = 0 # 大致對齊
+        elif dx < 0: nearest_enemy_state = 1     # 在左邊
+        else: nearest_enemy_state = 2            # 在右邊
+
+    # 2. 是否有子彈逼近 (0:安全, 1:左邊有子彈, 2:中間有子彈, 3:右邊有子彈)
+    danger_state = 0
+    closest_bullet_dist = 9999
+    closest_bullet = None
+
+    # 檢查是否有子彈在玩家上方且距離很近
+    for row in bullets_rect:
+        for b in row:
+            if b.centerx != -1: # 子彈存在
+                # 偵測範圍：X軸距離 < 60 (稍微比飛機寬度大一點), Y軸距離 < 300 (上方)
+                if abs(b.centerx - px) < 60 and 0 < (py - b.centery) < 300:
+                    dist = py - b.centery
+                    if dist < closest_bullet_dist:
+                        closest_bullet_dist = dist
+                        closest_bullet = b
+    
+    if closest_bullet:
+        dx = closest_bullet.centerx - px
+        if dx < -10:   # 子彈在左側 (需要往右閃)
+            danger_state = 1
+        elif dx > 10:  # 子彈在右側 (需要往左閃)
+            danger_state = 3
+        else:          # 子彈在正上方 (需要左右閃)
+            danger_state = 2
+        
+    # 3. 自身位置 (0:左, 1:中, 2:右) - 避免卡牆角
+    pos_state = 0
+    if px < width / 3: pos_state = 0
+    elif px < width * 2 / 3: pos_state = 1
+    else: pos_state = 2
+    
+    return (nearest_enemy_state, danger_state, pos_state)
+# -------------------------------
 
 #全域變數
 clock=pg.time.Clock()
 #子彈移動速度
-speed=[random.randint(-5,5),5,-6,5]
+speed=[random.randint(-5,5),5,-4,3]
 deadline=710
 id=None
+ENEMY_COUNT = 5 # 恢復為 5 架敵機
 life=0
-score=0
-ui_input='input server address'
-MAX_BYTES = 65535
 #初始化
 pg.init()
 pg.mixer.init()
@@ -74,7 +197,7 @@ bul=[]
 bul_rect=[]
 enbul=[]
 enbul_rect=[]
-for i in range(10):
+for i in range(5):
     bul.append(pg.transform.scale(pg.image.load(ch+"bullet.png").convert_alpha(),(15,40)))
     bul_rect.append(bul[i].get_rect())
     bul_rect[i].center=width,height
@@ -98,7 +221,7 @@ boss_bombold_rect=[]
 boss_bombold_num=[]
 enairplane_rect=enairplane.get_rect()
 enairplane_rect.bottomleft=random.randint(enairplane_rect.width,width-enairplane_rect.width),80
-for i in range(10):
+for i in range(ENEMY_COUNT):
     bossbul.append([])
     boss_bombold_num.append(0)
     boss_bombold_rect.append(bombold_rect)
@@ -192,12 +315,10 @@ def vector(object,dex,x,dey,y):
         object.centery-=3
     if y==True:
         object.centery+=3
-    if object.centerx<0:
-        object.centerx=0
-    if object.left<0:
-        object.left=0
-    elif object.centery>=1280:
-        object.centerx=1280
+    if object.left < 0:
+        object.left = 0
+    elif object.right > width:
+        object.right = width
     if object.centery<450:
         object.centery=450
     elif object.centery>600:
@@ -273,7 +394,7 @@ def standby():
     pg.mixer.music.stop() 
 
     #偵測關閉事件
-def restart_game(a):
+def restart_game(a, ai_mode=False):
     global number
     start_png=pg.image.load(ch+'START.png')
     start=pg.transform.scale(start_png,(400,200))
@@ -304,6 +425,7 @@ def restart_game(a):
     numbertext = font2.render(f"score:{number}",True,(100,200,0))
     number_rect=numbertext.get_rect()
     number_rect.center=width/2,height/4-100
+    ai_timer = 0
     while a:
         if not pg.mixer.music.get_busy():
             pg.mixer.music.load(ch+'lo-fi_fall.mp3')
@@ -311,6 +433,13 @@ def restart_game(a):
         clock.tick(30)
         
         #pygame 事件處理
+        if ai_mode:
+            ai_timer += 1
+            if ai_timer > 30: # 等待約 1 秒後自動點擊 Start
+                play_sound(ch + "button05.mp3")
+                pg.mixer.music.stop()
+                return 0
+
         for event in pg.event.get():
             #正常關閉
             if event.type == pg.QUIT:
@@ -341,6 +470,7 @@ def restart_game(a):
                 if y>=start_rect.top and y<=start_rect.bottom and x>=start_rect.left and x<=start_rect.right:
                     play_sound(ch + "button05.mp3")
                     pg.mixer.music.stop()
+                    return 0
                 elif y>=main_rect.top and y<=main_rect.bottom and x>=main_rect.left and x<=main_rect.right:
                     play_sound(ch + "button05.mp3")
                     pg.mixer.music.stop()
@@ -358,117 +488,17 @@ def restart_game(a):
         pg.display.update()
 
 
-# 連線時遊戲結束
-def link_restart(a,str1):
-
-    main_png=pg.image.load(ch+'MAIN.png')
-    main=pg.transform.scale(main_png,(400,200))
-    main2_png=pg.image.load(ch+'MAIN2.png')
-    main2=pg.transform.scale(main2_png,(400,200))
-    main_print=main
-    main_rect=main.get_rect()
-    main_rect.center=width/4,height/2+150
-
-    exit_png=pg.image.load(ch+'EXIT.png')
-    exit=pg.transform.scale(exit_png,(400,200))
-    exit2_png=pg.image.load(ch+'EXIT2.png')
-    exit2=pg.transform.scale(exit2_png,(400,200))
-    exit_print=exit
-    exit_rect=exit.get_rect()
-    exit_rect.center=width*3/4,height/2+150
-    if str1=='LOSE':
-        scoretext = font2.render(str1,True,(75,0,130))
-    elif str1=='WIN':
-        scoretext = font2.render(str1,True,(255,215,0))
-    else:
-        scoretext = font2.render(str1,True,(255,0,0))
-    
-    score_rect=scoretext.get_rect()
-    score_rect.center=width/2,height/2
-    i=0
-
-    while i<256:
-        for event in pg.event.get():
-            #正常關閉
-            if event.type == pg.QUIT:  
-                play_sound(ch + "button05.mp3")
-                pg.quit()
-                end_message()
-                sys.exit()
-        scoretext.set_alpha(i)
-        time.sleep(0.02953125)
-        screen.blit(scoretext,score_rect)
-        pg.display.update()
-        i+=1    
-    
-    while a:
-        clock.tick(30)
-        scoretext = font2.render("是否繼續遊玩",True,(0,255,0))
-        score_rect=scoretext.get_rect()
-        score_rect.center=width/2,height/4
-        #pygame 事件處理
-        for event in pg.event.get():
-            #正常關閉
-            if event.type == pg.QUIT:
-                play_sound(ch + "button05.mp3")
-                pg.quit()
-                end_message()
-                sys.exit()
-            if event.type==pg.MOUSEMOTION:
-                x,y=pg.mouse.get_pos()
-                if y>=main_rect.top and y<=main_rect.bottom and x>=main_rect.left and x<=main_rect.right:
-                    if main_print==main:
-                        play_sound(ch + "button.mp3")
-                    main_print=main2
-                else:
-                    main_print=main
-                if y>=exit_rect.top and y<=exit_rect.bottom and x>=exit_rect.left and x<=exit_rect.right:
-                    if exit_print==exit:
-                        play_sound(ch + "button.mp3")
-                    exit_print=exit2
-                else:
-                    exit_print=exit
-            if event.type == pg.MOUSEBUTTONDOWN:
-                x,y = pg.mouse.get_pos()
-
-                if y>=main_rect.top and y<=main_rect.bottom and x>=main_rect.left and x<=main_rect.right:
-                    play_sound(ch + "button05.mp3")
-                    pg.mixer.music.stop()
-                    end_message()
-                    return 1
-                elif y>=exit_rect.top and y<=exit_rect.bottom and x>=exit_rect.left and x<=exit_rect.right:
-                    play_sound(ch + "button05.mp3")
-                    pg.quit()
-                    end_message()
-                    sys.exit()
-        screen.blit(background,back_rect)
-        screen.blit(main_print,main_rect)
-        screen.blit(exit_print,exit_rect)
-        screen.blit(scoretext,score_rect)
-        pg.display.update()
-
-
-
-
 def main_ui():
     start_png=pg.image.load(ch+'START.png')
     start=pg.transform.scale(start_png,(400,200))
     start_rect=start.get_rect()
-    start_rect.center=width/4,height/2+150
-    start2_rect=start.get_rect()
-    start2_rect.center=width/4+600,height/2+150
+    start_rect.center=width/2,height/2+150
     
     pra_png=pg.image.load(ch+'practise.png')
     pra_p=pg.transform.scale(pra_png,(400,200))
     pra_png2=pg.image.load(ch+'practise2.png')
     pra_p2=pg.transform.scale(pra_png2,(400,200))
     print_pra=pra_p
-
-    game_png=pg.image.load(ch+'game_start.png')
-    game_p=pg.transform.scale(game_png,(400,200))
-    game_png2=pg.image.load(ch+'game_start2.png')
-    game_p2=pg.transform.scale(game_png2,(400,200))
-    print_game=game_p
 
     change_background_jpg=pg.image.load(ch+'background.jpg')
     change_background=pg.transform.scale(change_background_jpg,(width,height))
@@ -496,10 +526,6 @@ def main_ui():
                     play_sound(ch + "button05.mp3")
                     pg.mixer.music.stop()
                     return 2
-                if y>=start2_rect.top and y<=start2_rect.bottom and x>=start2_rect.left and x<=start2_rect.right :
-                    play_sound(ch + "button05.mp3")
-                    pg.mixer.music.stop()
-                    return 1
             if event.type==pg.MOUSEMOTION:
                 x,y=pg.mouse.get_pos()
                 if y>=start_rect.top and y<=start_rect.bottom and x>=start_rect.left and x<=start_rect.right:
@@ -508,600 +534,250 @@ def main_ui():
                     print_pra=pra_p2
                 else:
                     print_pra=pra_p
-                if y>=start2_rect.top and y<=start2_rect.bottom and x>=start2_rect.left and x<=start2_rect.right:
-                    if print_game==game_p:
-                        play_sound(ch + "button.mp3")
-                    print_game=game_p2
-                else:
-                    print_game=game_p
 
         # Updates
         screen.blit(change_background,change_back_rect)
         screen.blit(totaltext, total_rect)
         screen.blit(print_pra, start_rect)
-        screen.blit(print_game, start2_rect)
         pg.display.flip()
-#連線介面
-def ui(ui_input):
-    # Settings
-    color_background = (0, 0, 0)
-    color_inactive = (0, 0, 255)
-    color_active = (0, 200, 255)
-    color = color_inactive
-    text = ""
-    active = False
-    running = True
-
-    # Font
-    font = pg.font.SysFont("微軟正黑體",50)
-
-    # Input box
-    input_box = pg.Rect(100, 100, 140, 32)
-    # Run
-    while running:
-        for event in pg.event.get():
-            if event.type == pg.QUIT:
-                exit()
-            if event.type == pg.MOUSEBUTTONDOWN:
-                if input_box.collidepoint(event.pos):
-                    active = True  
-                else: 
-                    active=False
-
-                if active:
-                    color=color_active  
-                else: 
-                    color=color_inactive
-
-            if event.type == pg.KEYDOWN:
-                if active:
-                    if event.key == pg.K_RETURN:
-                        play_sound(ch + "button05.mp3")
-                        return text
-                    elif event.key == pg.K_BACKSPACE:
-                        text = text[:-1]
-                    else:
-                        text += event.unicode
-
-        # Input box
-        text_surface = font.render(text, True, color)
-        text_addr=font.render(ui_input, True, color_inactive)
-        input_box_width = max(200, text_surface.get_width()+10)
-        input_box.w = input_box_width
-        input_box.center = (width/2, height/2+80)
-
-        # Updates
-        screen.blit(ui_background,ui_back_rect)
-        screen.blit(text_surface, (input_box.x+5, input_box.y))
-        screen.blit(text_addr, (input_box.x-60, input_box.y-40))
-        pg.draw.rect(screen, color, input_box, 3)
-        pg.display.flip()
-send_message_logic=False
-stop_t=False
-# 執行緒send_message()：取得使用者的x,y座標及是否開火，傳送到Server​
-def send_message():
-    global life,send_message_logic,stop_t
-    while True:
-        # 建立Message Request訊息的dict物件
-        msgdict = {
-            "type": 3,
-            "nickname": nickname,
-            "Xcoordinate": airplane_rect.centerx,
-            "Ycoordinate": airplane_rect.centery,
-            "life":life
-        }
-        # 轉成JSON字串，再轉成bytes
-        msgdata = json.dumps(msgdict).encode('utf-8')
-        print(msgdata)
-        # print(msgdata)
-        # 將Enter Request送到Server
-        sock.sendto(msgdata, server_addr)
-        if stop_t:
-            break
-    print('send_message已關閉')
-win=False
-
-# 執行緒recv_message()：接收來自Server傳來的訊息，
-# 依據訊息中的type欄位所代表的訊息型態作對應的處理    
-recv_message_logic=False
-def recv_message():
-    global is_entered,enbul_num,enairplane_rect,enbul_rect,win,enlife,enter,recv_message_logic,stop_t,win,life,enlife
-    print('執行緒recv_message開始')
-    while True:
-        
-        # 接收來自Server傳來的訊息
-        try:
-            data, address = sock.recvfrom(MAX_BYTES)
-        except ConnectionResetError:
-            is_entered = True
-            enter=True
-        msgdict = json.loads(data.decode('utf-8'))
-        # 依照type欄位的值做對應的動作
-        # 接收來自Ser
-        if msgdict['type']==7:
-            play_sound(ch + "attack1.mp3")
-            enbul_num=(enbul_num+1)%10
-            enbul_rect[enbul_num].center=width-msgdict['Xcoordinate'],height-msgdict['Ycoordinate']
-        elif msgdict['type'] == 5:
-            enlife=msgdict['life']
-            enairplane_rect.center=width-msgdict['Xcoordinate'],height-msgdict['Ycoordinate']
-        elif msgdict['type'] == 2:
-            is_entered = True
-        
-        ## Message Response(4)：這是之前Message Request的回應訊息
-        # elif msgdict['type'] == 4:
-        #     # 不需做任何處理
-        #     print('Get Message Response from server.') # 除錯用
-        #     pass 
-        ## Message Transfer(5)：這是其他Client所發布的訊息
-        elif msgdict['type']==9:
-            win=True
-        if stop_t or win or life==0 :
-            break
-        
-    print('recv_message已關閉')
-
-
-def end_message():
-    global end,stop_t,thread_recv_message,thread_send_message
-    stop_t=True
-    if end:
-        thread_recv_message.join()
-        thread_send_message.join()
-        end=False
-    
-
-
 par=False
-game_start=False
 while True:
     switch=main_ui()
     if switch==2:
         par=True
-    elif switch==1:
-        game_start=True
-    while par: 
-        
-        #字串字體和大小
-        font=pg.font.SysFont("微軟正黑體",36)
-        font2 = pg.font.SysFont("Microsoft Jhenghei",60)
-        #倒數計時
-        COUNT=pg.USEREVENT+1
-        pg.time.set_timer(COUNT,1000)
-        runtime=60
-        life=20
-        bnbnoin=True
-        boss_bnbnoin=[True,True,True,True,True,True,True,True,True,True]
-        bnbspeed=[0,0]
-        debomb_num=100
-        mo=[-2,2]
-        number=0
-        eneSpeed=mo[random.randint(0,1)]
-        logic_x,logic_dex,logic_y,logic_dey=false,false,false,false
-        
 
-        for i in range(10):
-            bul_rect[i].center=width,height
-            enbul_rect[i].center=-1,-1
-        bul_num=-1
-        enbul_num=-1
-        operation=True#game start
-        fps=60
-        while operation:
-            if not pg.mixer.music.get_busy():
-                    pg.mixer.music.load(ch+'CleytonRX - Battle RPG Theme.mp3')
-                    pg.mixer.music.play(-1)
-            clock.tick(fps)#fps
-            lifetext=font.render(f"life:{life}",True,(0,0,0))
-            life_rect=lifetext.get_rect()
-            life_rect.top=airplane_rect.bottom
-            life_rect.centerx=airplane_rect.centerx
+    # 初始化 RL Agent (移到迴圈外，確保 Q-Table 在重置遊戲後能保留)
+    rl_agent = QLearningAgent(actions=[0, 1, 2, 3, 4, 5])
+    rl_agent.load_q_table() # 嘗試讀取已存在的 Q-Table
+    episode_count = 0
+    score_history = [] # 用來記錄最近的分數
 
-            #偵測使用者觸發的事件
-            for event in pg.event.get():
-                if event.type==pg.QUIT:
-                    pg.quit()
-                    sys.exit()
-                if event.type==COUNT:
-                    fps+=1
-                    number+=1
-                if event.type==pg.MOUSEMOTION:
-                    x,y=pg.mouse.get_pos()
-                    if y<450:
-                        y=450
-                    elif y>600:
-                        y=600
-                    airplane_rect.center=x,y
-                if event.type==pg.KEYDOWN :
-                    if event.key==pg.K_a or event.key==pg.K_LEFT:
-                        logic_dex=True
-                    elif event.key==pg.K_d or event.key==pg.K_RIGHT:
-                        logic_x=True
-                    elif event.key==pg.K_w or event.key==pg.K_UP:
-                        logic_dey=True
-                    elif event.key==pg.K_s or event.key==pg.K_DOWN:
-                        logic_y=True
-                    if event.key==pg.K_SPACE:
+    try:
+        while par: 
+            episode_count += 1
+            
+            #字串字體和大小
+            font=pg.font.SysFont("微軟正黑體",36)
+            font2 = pg.font.SysFont("Microsoft Jhenghei",60)
+            #倒數計時
+            COUNT=pg.USEREVENT+1
+            pg.time.set_timer(COUNT,1000)
+            runtime=60
+            life=3 # 降低血量，讓死亡懲罰來得更快，強迫 AI 學會閃躲
+            bnbnoin=True
+            boss_bnbnoin=[True,True,True,True,True,True,True,True,True,True]
+            bnbspeed=[0,0]
+            debomb_num=100
+            mo=[-2,2]
+            number=0
+            eneSpeed=mo[random.randint(0,1)]
+            logic_x,logic_dex,logic_y,logic_dey=false,false,false,false
+            
+
+            for i in range(5):
+                bul_rect[i].center=width,height
+                enbul_rect[i].center=-1,-1
+            bul_num=-1
+            enbul_num=-1
+            operation=True#game start
+            fps=60
+
+            prev_life = life
+            prev_score = number
+            current_state = get_rl_state(airplane_rect, bossairplane_rect, bossbul_rect)
+            shoot_delay = 0
+            
+            # 初始化 Frame Skipping 變數
+            action = rl_agent.choose_action(current_state) # 先決定第一個動作
+            accumulated_reward = 0 # 累積這幾幀的獎勵
+            frame_counter = 0      # 計數器
+
+            while operation:
+                if not pg.mixer.music.get_busy():
+                        pg.mixer.music.load(ch+'CleytonRX - Battle RPG Theme.mp3')
+                        pg.mixer.music.play(-1)
+                clock.tick(fps)#fps
+                lifetext=font.render(f"life:{life}",True,(0,0,0))
+                life_rect=lifetext.get_rect()
+                life_rect.top=airplane_rect.bottom
+                life_rect.centerx=airplane_rect.centerx
+                
+                if shoot_delay > 0:
+                    shoot_delay -= 1
+
+                # --- RL Agent 決定動作 (移除原本每幀決策的邏輯) ---
+                # action = rl_agent.choose_action(current_state) 
+                
+                # 重置移動旗標
+                logic_dex, logic_x, logic_dey, logic_y = False, False, False, False
+                
+                if action == 1: logic_dex = True   # 左
+                elif action == 2: logic_x = True   # 右
+                elif action == 3: logic_dey = True # 上
+                elif action == 4: logic_y = True   # 下
+                elif action == 5:                  # 射擊
+                    if shoot_delay <= 0:
                         bul_num_after=bul_num
                         bul_num=(bul_num+1)%5
                         if bul_rect[bul_num].centerx==width:
                             bul_rect[bul_num].center=airplane_rect.center
                             play_sound(ch + "attack1.mp3")
+                            shoot_delay = 40
                         else:
                             bul_num=bul_num_after
-                if event.type==pg.KEYUP:
-                    if event.key==pg.K_a or event.key==pg.K_LEFT:
-                        logic_dex=False
-                    if event.key==pg.K_d or event.key==pg.K_RIGHT:
-                        logic_x=False
-                    if event.key==pg.K_w or event.key==pg.K_UP:
-                        logic_dey=False
-                    if event.key==pg.K_s or event.key==pg.K_DOWN:
-                        logic_y=False
-                if event.type==pg.MOUSEBUTTONDOWN:
-                    x,y=pg.mouse.get_pos()
-                    if y>=pause_rect.top and y<=pause_rect.bottom and x>=pause_rect.left and x<=pause_rect.right :
-                        play_sound(ch + "button05.mp3")
-                        a=True
-                        pause_b=pause(a)
-                        if pause_b==0:
-                            operation=False
-                            par=False
-                            pg.mixer.music.stop()
-                    #我方子彈發射
-                    bul_num_after=bul_num
-                    bul_num=(bul_num+1)%5
-                    if bul_rect[bul_num].centerx==width:
-                        play_sound(ch + "attack1.mp3")
-                        bul_rect[bul_num].center=airplane_rect.center
-                    else:
-                        bul_num=bul_num_after
-            vector(airplane_rect,logic_dex,logic_x,logic_dey,logic_y)
+                # -----------------------
 
-            for j in range(10):
-                logic=random.randint(0,50)
-                if logic==1:#敵人子彈發射
-                    bossbul_num[j]=(enbul_num+1)%5
-                    if bossbul_rect[j][bossbul_num[j]].centerx==-1:
-                        play_sound(ch + "attack1.mp3")
-                        bossbul_rect[j][bossbul_num[j]].center=bossairplane_rect[j].center
-                for i in range(10):
-                    bossbul_rect[j][i]=bossbul_rect[j][i].move(0,speed[3])#子彈移動
-                    if bossbul_rect[j][i].top>=height:#是否到達視窗底部
-                        bossbul_rect[j][i].center=-1,-1
-                if bul_rect[j].centerx!=width:#是否是射出的子彈
-                    bul_rect[j]=bul_rect[j].move(0,speed[2])
-                if bul_rect[j].top<=0:#將子彈重置
-                    bul_rect[j].center=width,height
-
-
-
-            
-            #碰撞判定
-            for i in range(5):
-                for j in range(10):
-                    for k in range(10):
-                        if rebound0(bul_rect[i].top,bul_rect[i].bottom,bul_rect[i].left,bul_rect[i].right,bossbul_rect[j][k].top,bossbul_rect[j][k].bottom,bossbul_rect[j][k].left,bossbul_rect[j][k].right):
-                            play_sound(ch + "bomb.mp3")
-                            bul_rect[i].center=width,height
-                            bossbul_rect[j][k].center=-1,-1
-                        
-                        if rebound0(bul_rect[i].top,bul_rect[i].bottom,bul_rect[i].left,bul_rect[i].right,bossairplane_rect[j].top,bossairplane_rect[j].bottom,bossairplane_rect[j].left,bossairplane_rect[j].right): 
-                            play_sound(ch + "damage1.mp3")
-                            number+=1
-                            boss_bombold_num[j]=30
-                            boss_bombold_rect[j].center=bossairplane_rect[j].center
-                            bossSpeed[j]=mo[random.randint(0,1)]
-                            bossairplane_rect[j].bottomleft=random.randint(enairplane_rect.width,width-enairplane_rect.width),80
-                            bul_rect[i].center=width,height
-            for i in range(10):
-                for j in range(10):
-                    if rebound0(airplane_rect.top,airplane_rect.bottom,airplane_rect.left,airplane_rect.right,bossbul_rect[i][j].top,bossbul_rect[i][j].bottom,bossbul_rect[i][j].left,bossbul_rect[i][j].right):
-                            if bossbul_rect[i][j].centerx>0:
-                                play_sound(ch + "burst01.mp3")
-                                bossbul_rect[i][j].center=-1,-1
-                                life-=1
-            
-            if life <=0:
-                pg.mixer.music.stop()
-                game_over()
-                a=True
-                control_choose=restart_game(a)
-                life=20
-                score=0
-                fps=60
-                if control_choose==1: 
-                    par=False
-                    break
-                
-
-            #敵機左右移動
-            for i in range(10):
-                bossairplane_rect[i]=bossairplane_rect[i].move(bossSpeed[i],0)
-                if bossairplane_rect[i].centerx>=pause_rect.centerx:
-                    bossairplane_rect[i].centerx=pause_rect.centerx
-                    bossSpeed[i]=-2
-                elif bossairplane_rect[i].left<=0:
-                    bossairplane_rect[i].left=1
-                    bossSpeed[i]=2
-            #圖片更新
-            screen.blit(background,back_rect)
-            for i in range(10):
-                if bul_rect[i].centerx>=0:
-                    screen.blit(bul[i],bul_rect[i])
-                if boss_bombold_num[i]>0:
-                    screen.blit(bombold,boss_bombold_rect[i])
-                    boss_bombold_num[i]-=1
-                screen.blit(bossairplane[i],bossairplane_rect[i])
-                for j in range(10):
-                    if bossbul_rect[i][j].centerx>=0:
-                        screen.blit(bossbul[i][j],bossbul_rect[i][j])
-
-            screen.blit(airplane,airplane_rect)
-            screen.blit(lifetext,life_rect)
-            screen.blit(pausebtn,pause_rect)
-            pg.display.update()
-
-                
-            
-    restart=True
-    while game_start: 
-        #字串字體和大小
-        font=pg.font.SysFont("微軟正黑體",36)
-        font2 = pg.font.SysFont("Microsoft Jhenghei",60)
-        #倒數計時
-        COUNT=pg.USEREVENT+1
-        pg.time.set_timer(COUNT,1000)
-        runtime=60
-        enlife=0
-        life=30
-        bnbnoin=True
-        bnbspeed=[0,0]
-        debomb_num=100
-        mo=[-2,2]
-        eneSpeed=mo[random.randint(0,1)]
-        logic_x,logic_dex,logic_y,logic_dey=false,false,false,false
-        scoretext = font2.render(f"score:{score}",True,(0,0,0))
-        score_rect=scoretext.get_rect()
-        score_rect.center=width/2,height/2
-        operation=True
-        yn_onfire=False
-        win=False
-        end=False
-        
-        if restart:
-            restart=False
-            stop_t=False
-            # 建立一個UDP socket
-            sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-            while True:
-                if not pg.mixer.music.get_busy():
-                    pg.mixer.music.load(ch+'For the king.ogg')
-                    pg.mixer.music.play(-1)
-                server_addr = (ui('input server address'),6000)
-                nickname=ui('Input your name')
-                pg.mixer.music.stop()
-                
-                # 準備Enter Request訊息的dict物件
-                msgdict = {
-                    "type": 1,
-                    "nickname": nickname
-                }
-                data = json.dumps(msgdict).encode('utf-8')
-                try:
-                    sock.sendto(data, server_addr)
-                except Exception as e:
-                    addres_error()
-                    continue
-                break
-                
-            for event in pg.event.get():
-                    if event.type==pg.QUIT :
+                #偵測使用者觸發的事件
+                for event in pg.event.get():
+                    if event.type==pg.QUIT:
+                        rl_agent.save_q_table() # 離開前存檔
+                        rl_agent.debug_q_table() # 印出學習成果
                         pg.quit()
                         sys.exit()
-            screen.blit(background,back_rect)
-            pg.display.update()
-            # 等待並接收Server傳回來的訊息，若為Enter Response則繼續下一步，否則繼續等待
-            is_entered = False
-            enter=False
-            # 建立threads：send_message與recv_message
-            thread_send_message = threading.Thread(target=send_message)
-            thread_recv_message = threading.Thread(target=recv_message)
-            thread_recv_message.start()
-            
-            
-            
-        is_entered = False
-        enter=False
-        standby()#等待連線
-        if enter:
-            game_start=False
-            addres_error()
-            thread_recv_message.join()
-            continue
-
-        
-        
-        thread_send_message.start()
-  
-        
-
-        while operation:
-            if not pg.mixer.music.get_busy():
-                    pg.mixer.music.load(ch+'Endless Pain of Nightmares.WAV')
-                    pg.mixer.music.play(-1)
-            clock.tick(60)#fps
-
-            lifetext=font.render(f"life:{life}",True,(0,0,0))
-            life_rect=lifetext.get_rect()
-            life_rect.top=airplane_rect.bottom
-            life_rect.centerx=airplane_rect.centerx
-            enlifetext=font.render(f"life:{enlife}",True,(0,0,0))
-            enlife_rect=enlifetext.get_rect()
-            enlife_rect.top=enairplane_rect.bottom
-            enlife_rect.centerx=enairplane_rect.centerx
-            #偵測使用者觸發的事件
-            for event in pg.event.get():
-                if event.type==COUNT:#每秒會接收到
-                    runtime-=1
-                if event.type==pg.QUIT :#退出
-                    life=0
-                if event.type==pg.MOUSEMOTION:#讀取滑鼠座標
-                    x,y=pg.mouse.get_pos()
-                    if y<450:
-                        y=450
-                    elif y>600:
-                        y=600
-                    airplane_rect.center=x,y
-                    if airplane_rect.left<0:
-                        airplane_rect.left=0
+                    if event.type==COUNT:
+                        fps+=1
+                        number+=1
+                    # 移除滑鼠與鍵盤控制，改由上方 RL Agent 控制
+                    # if event.type==pg.MOUSEMOTION: ...
+                    # if event.type==pg.KEYDOWN: ...
+                    # if event.type==pg.KEYUP: ...
                     
-                if event.type==pg.KEYDOWN :#讀取按鍵事件
-                    if event.key==pg.K_a or event.key==pg.K_LEFT:
-                        logic_dex=True
-                    elif event.key==pg.K_d or event.key==pg.K_RIGHT:
-                        logic_x=True
-                    elif event.key==pg.K_w or event.key==pg.K_UP:
-                        logic_dey=True
-                    elif event.key==pg.K_s or event.key==pg.K_DOWN:
-                        logic_y=True
-                    if event.key==pg.K_SPACE:
-                        bul_num_after=bul_num
-                        bul_num=(bul_num+1)%5
-                        if bul_rect[bul_num].centerx==width:
-                            bul_rect[bul_num].center=airplane_rect.center
+                    if event.type == pg.KEYDOWN:
+                        if event.key == pg.K_p: # 按 P 鍵印出 Q-Table
+                            rl_agent.debug_q_table()
+                    
+                    if event.type==pg.MOUSEBUTTONDOWN:
+                        x,y=pg.mouse.get_pos()
+                        if y>=pause_rect.top and y<=pause_rect.bottom and x>=pause_rect.left and x<=pause_rect.right :
+                            play_sound(ch + "button05.mp3")
+                            a=True
+                            pause_b=pause(a)
+                            if pause_b==0:
+                                operation=False
+                                par=False
+                                pg.mixer.music.stop()
+
+                vector(airplane_rect,logic_dex,logic_x,logic_dey,logic_y)
+
+                for j in range(ENEMY_COUNT):
+                    logic=random.randint(0,50)
+                    if logic==1:#敵人子彈發射
+                        bossbul_num[j]=(enbul_num+1)%5
+                        if bossbul_rect[j][bossbul_num[j]].centerx==-1:
                             play_sound(ch + "attack1.mp3")
-                            msgdict = {
-                            "type": 6,
-                            "nickname": nickname,
-                            "Xcoordinate": airplane_rect.centerx,
-                            "Ycoordinate": airplane_rect.centery,
-                            }
-                            # 轉成JSON字串，再轉成bytes
-                            msgdata = json.dumps(msgdict).encode('utf-8')
-                            # 將Enter Request送到Server
-                            sock.sendto(msgdata, server_addr)
-                        else:
-                            bul_num=bul_num_after
-                if event.type==pg.KEYUP:#讀取按鍵放下事件
-                    if event.key==pg.K_a or event.key==pg.K_LEFT:
-                        logic_dex=False
-                    if event.key==pg.K_d or event.key==pg.K_RIGHT:
-                        logic_x=False
-                    if event.key==pg.K_w or event.key==pg.K_UP:
-                        logic_dey=False
-                    if event.key==pg.K_s or event.key==pg.K_DOWN:
-                        logic_y=False
-                if event.type==pg.MOUSEBUTTONDOWN:
-                    x,y=pg.mouse.get_pos()
-                    #我方子彈發射
-                    bul_num_after=bul_num
-                    bul_num=(bul_num+1)%5
-                    if bul_rect[bul_num].centerx==width:#判斷子彈是否能發射
-                        play_sound(ch + "attack1.mp3")
-                        bul_rect[bul_num].center=airplane_rect.center
-                        msgdict = {
-                            "type": 6,
-                            "nickname": nickname,
-                            "Xcoordinate": airplane_rect.centerx,
-                            "Ycoordinate": airplane_rect.centery,
-                            }
-                        # 轉成JSON字串，再轉成bytes
-                        msgdata = json.dumps(msgdict).encode('utf-8')
-                        # 將Enter Request送到Server
-                        sock.sendto(msgdata, server_addr)
-                    else:
-                        bul_num=bul_num_after
-            vector(airplane_rect,logic_dex,logic_x,logic_dey,logic_y)
-
-            for i in range(10):
-                enbul_rect[i]=enbul_rect[i].move(0,speed[3])#子彈移動
-                if enbul_rect[i].top>=height:#是否到達視窗底部
-                    enbul_rect[i].center=-1,-1
-                if bul_rect[i].centerx!=width:#是否是射出的子彈
-                    bul_rect[i]=bul_rect[i].move(0,speed[2])
-                if bul_rect[i].top<=0:#將子彈重置
-                    bul_rect[i].center=width,height
-                #碰撞判定
-                if rebound0(airplane_rect.top,airplane_rect.bottom,airplane_rect.left,airplane_rect.right,enbul_rect[i].top,enbul_rect[i].bottom,enbul_rect[i].left,enbul_rect[i].right):
-                    if enbul_rect[i].centerx>0:
-                        play_sound(ch + "burst01.mp3")
-                        enbul_rect[i].center=-1,-1
-                        life-=1
+                            bossbul_rect[j][bossbul_num[j]].center=bossairplane_rect[j].center
+                    for i in range(10):
+                        bossbul_rect[j][i]=bossbul_rect[j][i].move(0,speed[3])#子彈移動
+                        if bossbul_rect[j][i].top>=height:#是否到達視窗底部
+                            bossbul_rect[j][i].center=-1,-1
+                    if bul_rect[j].centerx!=width:#是否是射出的子彈
+                        bul_rect[j]=bul_rect[j].move(0,speed[2])
+                    if bul_rect[j].top<=0:#將子彈重置
+                        bul_rect[j].center=width,height
 
 
 
-            #碰撞判定
-            for i in range(5):
-                
-                if rebound0(bul_rect[i].top,bul_rect[i].bottom,bul_rect[i].left,bul_rect[i].right,enairplane_rect.top,enairplane_rect.bottom,enairplane_rect.left,enairplane_rect.right): 
-                    bnbnoin=True
-                    debomb_num=0
-                    bombold_rect.center=enairplane_rect.center
-                    bul_rect[i].center=width,height
-                if  bnbnoin:
-                    bnbspeed[1]=random.randint(2,5)
-                    bnbnoin=False
-                for j in range(10):
-                    if rebound0(bul_rect[i].top,bul_rect[i].bottom,bul_rect[i].left,bul_rect[i].right,enbul_rect[j].top,enbul_rect[j].bottom,enbul_rect[j].left,enbul_rect[j].right):
-                        play_sound(ch + "bomb.mp3")
-                        bul_rect[i].center=width,height
-                        enbul_rect[j].center=-1,-1
-
-
-            if win or enlife==0:#win
-                life=10
-                score=0
-                pg.mixer.music.stop()
-                if not pg.mixer.music.get_busy():
-                    pg.mixer.music.load(ch+'Middle_age_RPG_Theme_1.ogg')
-                    pg.mixer.music.play(-1)
-                control_choose=link_restart(True,'WIN')
-                pg.mixer.music.stop()
-                if control_choose==1: 
-                    game_start=False
-                    end_message()
-                break
             
-            elif life <=0:#lose
-                pg.mixer.music.stop()
-                if not pg.mixer.music.get_busy():
-                    pg.mixer.music.load(ch+'Game Over.ogg')
-                    pg.mixer.music.play(-1)
-                msgdict = {
-                "type": 8,
-                "nickname": nickname,
-                }
-                # 轉成JSON字串，再轉成bytes
-                msgdata = json.dumps(msgdict).encode('utf-8')
-                # 將Enter Request送到Server
-                sock.sendto(msgdata, server_addr)
-                control_choose=link_restart(True,'LOSE')
-                pg.mixer.music.stop()
-                life=30
-                score=0
-                if control_choose==1: 
-                    game_start=False
-                break
-    
-            #圖片更新
-            screen.blit(background,back_rect)
-            screen.blit(enairplane,enairplane_rect)
-            if debomb_num<30:
-                play_sound(ch + "damage1.mp3")
-                screen.blit(bombold,bombold_rect)
-                debomb_num+=1
+                #碰撞判定
+                for i in range(5):
+                    for j in range(ENEMY_COUNT):
+                        for k in range(10):
+                            if rebound0(bul_rect[i].top,bul_rect[i].bottom,bul_rect[i].left,bul_rect[i].right,bossbul_rect[j][k].top,bossbul_rect[j][k].bottom,bossbul_rect[j][k].left,bossbul_rect[j][k].right):
+                                play_sound(ch + "bomb.mp3")
+                                bul_rect[i].center=width,height
+                                bossbul_rect[j][k].center=-1,-1
+                            
+                            if rebound0(bul_rect[i].top,bul_rect[i].bottom,bul_rect[i].left,bul_rect[i].right,bossairplane_rect[j].top,bossairplane_rect[j].bottom,bossairplane_rect[j].left,bossairplane_rect[j].right): 
+                                play_sound(ch + "damage1.mp3")
+                                number+=1
+                                boss_bombold_num[j]=30
+                                boss_bombold_rect[j].center=bossairplane_rect[j].center
+                                bossSpeed[j]=mo[random.randint(0,1)]
+                                bossairplane_rect[j].bottomleft=random.randint(enairplane_rect.width,width-enairplane_rect.width),80
+                                bul_rect[i].center=width,height
+                for i in range(5):
+                    for j in range(ENEMY_COUNT):
+                        if rebound0(airplane_rect.top,airplane_rect.bottom,airplane_rect.left,airplane_rect.right,bossbul_rect[i][j].top,bossbul_rect[i][j].bottom,bossbul_rect[i][j].left,bossbul_rect[i][j].right):
+                                if bossbul_rect[i][j].centerx>0:
+                                    play_sound(ch + "burst01.mp3")
+                                    bossbul_rect[i][j].center=-1,-1
+                                    life-=5
+                
+                # --- RL 學習步驟 (Frame Skipping) ---
+                reward = 1 # 存活獎勵
+                
+                if life < prev_life:
+                    reward -= 200 # 受傷懲罰 (大幅增加，讓 AI 優先考慮閃躲)
+                if number > prev_score:
+                    reward += 10 # 提高擊殺獎勵，鼓勵進攻
+                
+                accumulated_reward += reward
+                frame_counter += 1
+                
+                # 每 4 幀進行一次學習與決策
+                if frame_counter % 4 == 0:
+                    next_state = get_rl_state(airplane_rect, bossairplane_rect, bossbul_rect)
+                    rl_agent.learn(current_state, action, accumulated_reward, next_state)
+                    
+                    current_state = next_state
+                    action = rl_agent.choose_action(current_state)
+                    accumulated_reward = 0 # 重置累積獎勵
+                
+                prev_life = life
+                prev_score = number
+                # ------------------
+                
+                if life <=0:
+                    pg.mixer.music.stop()
+                    rl_agent.save_q_table() # 死亡時存檔
+                    rl_agent.decay_epsilon() # 降低探索率
+                    
+                    # 計算最近 50 場的平均分數
+                    score_history.append(number)
+                    avg_score = sum(score_history[-50:]) / len(score_history[-50:])
+                    print(f"Episode: {episode_count} | Score: {number} | Avg: {avg_score:.1f} | Epsilon: {rl_agent.epsilon:.3f} | Q-Table Size: {len(rl_agent.q_table)}")
+                    
+                    # 死亡時強制學習最後一次經驗 (避免因為沒滿 4 幀而遺漏死亡懲罰)
+                    if frame_counter % 4 != 0:
+                        next_state = get_rl_state(airplane_rect, bossairplane_rect, bossbul_rect)
+                        rl_agent.learn(current_state, action, accumulated_reward, next_state)
 
-            for i in range(5):
-                if bul_rect[i].centerx>=0:
-                    screen.blit(bul[i],bul_rect[i])
-                if enbul_rect[i].centerx>=0:
-                    screen.blit(enbul[i],enbul_rect[i])
-                if enbul_rect[i+5].centerx>=0:
-                    screen.blit(enbul[i+5],enbul_rect[i+5])
-            screen.blit(airplane,airplane_rect)
-            screen.blit(lifetext,life_rect)
-            screen.blit(enlifetext,enlife_rect)
-            pg.display.update()
-        
+                    game_over()
+                    a=True
+                    control_choose=restart_game(a, ai_mode=True)
+                    if control_choose==1: 
+                        par=False
+                    break
+                    
 
+                #敵機左右移動
+                for i in range(ENEMY_COUNT):
+                    bossairplane_rect[i]=bossairplane_rect[i].move(bossSpeed[i],0)
+                    if bossairplane_rect[i].centerx>=pause_rect.centerx:
+                        bossairplane_rect[i].centerx=pause_rect.centerx
+                        bossSpeed[i]=-2
+                    elif bossairplane_rect[i].left<=0:
+                        bossairplane_rect[i].left=1
+                        bossSpeed[i]=2
+                #圖片更新
+                screen.blit(background,back_rect)
+                for i in range(ENEMY_COUNT):
+                    if bul_rect[i].centerx>=0:
+                        screen.blit(bul[i],bul_rect[i])
+                    if boss_bombold_num[i]>0:
+                        screen.blit(bombold,boss_bombold_rect[i])
+                        boss_bombold_num[i]-=1
+                    screen.blit(bossairplane[i],bossairplane_rect[i])
+                    for j in range(10):
+                        if bossbul_rect[i][j].centerx>=0:
+                            screen.blit(bossbul[i][j],bossbul_rect[i][j])
+
+                screen.blit(airplane,airplane_rect)
+                screen.blit(lifetext,life_rect)
+                screen.blit(pausebtn,pause_rect)
+                pg.display.update()
+    except KeyboardInterrupt:
+        print("\nTraining interrupted by user (Ctrl+C). Saving Q-Table...")
+        rl_agent.save_q_table()
+        pg.quit()
+        sys.exit()
