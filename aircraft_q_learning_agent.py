@@ -343,55 +343,6 @@ def game_over():
         screen.blit(scoretext,score_rect)
         pg.display.update()
         i+=1
-def addres_error():
-    scoretext = font2.render("此伺服器不存在",True,(255,0,0))
-    score_rect=scoretext.get_rect()
-    score_rect.center=width/2,height/2
-    i=0
-    while i<256:
-        for event in pg.event.get():
-            #正常關閉
-            if event.type == pg.QUIT:
-                pg.quit()
-                sys.exit()
-        scoretext.set_alpha(i)
-        time.sleep(0.02078125)
-        screen.blit(scoretext,score_rect)
-        pg.display.update()
-        i+=1    
-
-def standby():
-    scoretext=[]
-    scoretext.append(font2.render("等待配對中",True,(255,0,0)))
-    scoretext.append(font2.render("等待配對中.",True,(255,0,0)))
-    scoretext.append(font2.render("等待配對中. .",True,(255,0,0)))
-    scoretext.append(font2.render("等待配對中. . .",True,(255,0,0)))
-    
-    score_rect=scoretext[0].get_rect()
-    score_rect.center=width/2,height/2
-    i=0
-    run=0
-    global is_entered,background,back_rect
-    while not is_entered:
-        clock.tick(60)
-        if not pg.mixer.music.get_busy():
-                pg.mixer.music.load(ch+'Clouds.Wav')
-                pg.mixer.music.play(-1)
-        for event in pg.event.get():
-            #正常關閉
-            if event.type == pg.QUIT:
-                # pg.quit()
-                # sys.exit()
-                pass
-        screen.blit(background,back_rect)
-        screen.blit(scoretext[i],score_rect)
-        pg.display.update()
-        if run==40:
-            run=0
-            i=(i+1)%4
-        run+=1
-         
-    pg.mixer.music.stop() 
 
     #偵測關閉事件
 def restart_game(a, ai_mode=False):
